@@ -66,7 +66,14 @@ const moisture = [
 
 export const Route = createFileRoute("/_app/surya-shakti")({
   validateSearch: z.object({ tab: z.string().optional() }),
-  head: () => ({ meta: [{ title: "SuryaShakti — Smart Farm Control Centre | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "SuryaShakti — Smart Farm Control Centre | Krishi Mitra" },
+    { name: "description", content: "Monitor solar energy, smart irrigation, soil sensors and farm water use." },
+    { property: "og:title", content: "SuryaShakti — Smart Farm Control Centre" },
+    { property: "og:description", content: "Solar energy, soil sensors and irrigation working together." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: SuryaShakti,
 });
 

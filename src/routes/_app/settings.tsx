@@ -14,7 +14,14 @@ import {
 import { PageHeader } from "@/components/krishi/widgets";
 
 export const Route = createFileRoute("/_app/settings")({
-  head: () => ({ meta: [{ title: "Settings | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "Settings — Krishi Mitra" },
+    { name: "description", content: "Set your language, voice, alert, unit and privacy preferences for Krishi Mitra." },
+    { property: "og:title", content: "Settings — Krishi Mitra" },
+    { property: "og:description", content: "Make Krishi Mitra fit the way you work on your farm." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: Settings,
 });
 function Settings() {

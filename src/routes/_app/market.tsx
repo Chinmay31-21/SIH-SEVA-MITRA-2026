@@ -193,7 +193,14 @@ async function fetchSupabaseMarketPrices(): Promise<MarketResponse> {
 
 export const Route = createFileRoute("/_app/market")({
   validateSearch: z.object({ tab: z.string().optional() }),
-  head: () => ({ meta: [{ title: "Krishi Market — Sell Smarter | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "Krishi Market — Sell Smarter | Krishi Mitra" },
+    { name: "description", content: "Compare live mandi prices, find buyers, storage and better ways to sell farm produce." },
+    { property: "og:title", content: "Krishi Market — Sell Smarter" },
+    { property: "og:description", content: "Live mandi prices, trusted buyers and better decisions for farm produce." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: MarketPage,
 });
 
@@ -572,6 +579,7 @@ function PricesTab() {
         </div>
 
         <div className="mt-5 overflow-x-auto">
+<<<<<<< HEAD
           {isLoading ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -587,6 +595,45 @@ function PricesTab() {
                   <th className="px-3 py-3 font-bold">Min – Max Range (कमी – जास्त)</th>
                   <th className="px-3 py-3 font-bold">Arrivals (आवक)</th>
                   <th className="px-3 py-3 font-bold">Reported (दिनांक)</th>
+=======
+          <table className="w-full min-w-full text-left text-sm">
+            <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                {["Crop / Market", "Average", "Min–Max", "Change", "Demand", "Stock"].map((h) => (
+                  <th key={h} className="px-3 py-3 font-bold">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(([crop, market, avg, min, max, change, demand, stock]) => (
+                <tr key={crop} className="border-b last:border-0 hover:bg-muted/50">
+                  <td className="px-3 py-4">
+                    <div className="font-extrabold">{crop}</div>
+                    <div className="text-xs text-muted-foreground">{market}</div>
+                  </td>
+                  <td className="px-3 py-4 font-extrabold">
+                    {avg}
+                    <div className="text-[10px] font-normal text-muted-foreground">/ quintal</div>
+                  </td>
+                  <td className="px-3 py-4 text-xs text-muted-foreground">
+                    {min} – {max}
+                  </td>
+                  <td
+                     className={`px-3 py-4 font-bold ${(change ?? "").startsWith("+") ? "text-primary" : "text-destructive"}`}
+                  >
+                    {change}
+                  </td>
+                  <td className="px-3 py-4">
+                    <StatusPill
+                      tone={demand === "High" ? "green" : demand === "Medium" ? "amber" : "red"}
+                    >
+                      {demand}
+                    </StatusPill>
+                  </td>
+                  <td className="px-3 py-4 text-muted-foreground">{stock}</td>
+>>>>>>> 157360388c511c380f2398cbdad6f984d112186e
                 </tr>
               </thead>
               <tbody>

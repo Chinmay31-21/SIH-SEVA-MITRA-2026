@@ -14,7 +14,14 @@ import {
 import { PageHeader, StatusPill } from "@/components/krishi/widgets";
 
 export const Route = createFileRoute("/_app/notifications")({
-  head: () => ({ meta: [{ title: "Notifications | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "Notifications — Farm Updates | Krishi Mitra" },
+    { name: "description", content: "Stay ahead of weather, crop health, irrigation, market and scheme updates." },
+    { property: "og:title", content: "Notifications — Farm Updates" },
+    { property: "og:description", content: "Timely alerts for the decisions that matter on your farm." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: Notifications,
 });
 const initial = [

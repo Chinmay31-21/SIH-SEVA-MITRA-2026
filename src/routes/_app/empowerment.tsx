@@ -99,7 +99,14 @@ const trainings = [
 
 export const Route = createFileRoute("/_app/empowerment")({
   validateSearch: z.object({ tab: z.string().optional() }),
-  head: () => ({ meta: [{ title: "Farmer Empowerment | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "Farmer Empowerment — Schemes & Resources | Krishi Mitra" },
+    { name: "description", content: "Find government schemes, subsidies, shared resources, FPOs and practical farm training." },
+    { property: "og:title", content: "Farmer Empowerment — Schemes & Resources" },
+    { property: "og:description", content: "Technology, opportunities and resources for every farmer." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: Empowerment,
 });
 
