@@ -4,7 +4,14 @@ import { MapPin, Plus, Sprout, Tractor, Waves } from "lucide-react";
 import { PageHeader, StatCard, StatusPill } from "@/components/krishi/widgets";
 
 export const Route = createFileRoute("/_app/my-farm")({
-  head: () => ({ meta: [{ title: "My Farm | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "My Farm — Fields & Crops | Krishi Mitra" },
+    { name: "description", content: "Manage your fields, crops, land details, water source and upcoming farm work." },
+    { property: "og:title", content: "My Farm — Fields & Crops" },
+    { property: "og:description", content: "One clear view of your land, crops and the decisions ahead." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: MyFarm,
 });
 const fieldData = [

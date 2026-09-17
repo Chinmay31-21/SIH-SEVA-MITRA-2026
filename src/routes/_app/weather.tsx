@@ -64,6 +64,10 @@ export const Route = createFileRoute("/_app/weather")({
     meta: [
       { title: "WeatherCast — Farm Weather Intelligence | Krishi Mitra" },
       { name: "description", content: "Turn farm weather signals into clear, timely actions." },
+      { property: "og:title", content: "WeatherCast — Farm Weather Intelligence" },
+      { property: "og:description", content: "Turn farm weather signals into clear, timely actions." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: WeatherCast,

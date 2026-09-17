@@ -4,7 +4,14 @@ import { Bot, Leaf, Mic, Send, Sparkles, Volume2 } from "lucide-react";
 import { PageHeader } from "@/components/krishi/widgets";
 
 export const Route = createFileRoute("/_app/ai-assistant")({
-  head: () => ({ meta: [{ title: "Krishi AI Assistant | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "Krishi AI Assistant — Farm Guidance | Krishi Mitra" },
+    { name: "description", content: "Ask a voice-friendly farming assistant about crops, weather, market prices and schemes." },
+    { property: "og:title", content: "Krishi AI Assistant — Farm Guidance" },
+    { property: "og:description", content: "Simple crop, weather, market and scheme guidance in your language." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: AIAssistant,
 });
 

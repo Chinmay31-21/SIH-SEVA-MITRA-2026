@@ -10,7 +10,14 @@ import {
 import { PageHeader, StatusPill } from "@/components/krishi/widgets";
 
 export const Route = createFileRoute("/_app/profile")({
-  head: () => ({ meta: [{ title: "Profile & Verification | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "Profile & Verification — Krishi Mitra" },
+    { name: "description", content: "Review your verified farmer identity, land details and protected payment information." },
+    { property: "og:title", content: "Profile & Verification — Krishi Mitra" },
+    { property: "og:description", content: "Your identity and farm details, protected and ready for trusted services." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: Profile,
 });
 function Profile() {

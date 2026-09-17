@@ -89,7 +89,14 @@ const listings = [
 
 export const Route = createFileRoute("/_app/market")({
   validateSearch: z.object({ tab: z.string().optional() }),
-  head: () => ({ meta: [{ title: "Krishi Market — Sell Smarter | Krishi Mitra" }] }),
+  head: () => ({ meta: [
+    { title: "Krishi Market — Sell Smarter | Krishi Mitra" },
+    { name: "description", content: "Compare live mandi prices, find buyers, storage and better ways to sell farm produce." },
+    { property: "og:title", content: "Krishi Market — Sell Smarter" },
+    { property: "og:description", content: "Live mandi prices, trusted buyers and better decisions for farm produce." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
   component: MarketPage,
 });
 
@@ -195,7 +202,7 @@ function PricesTab() {
                     {min} – {max}
                   </td>
                   <td
-                    className={`px-3 py-4 font-bold ${change.startsWith("+") ? "text-primary" : "text-destructive"}`}
+                     className={`px-3 py-4 font-bold ${(change ?? "").startsWith("+") ? "text-primary" : "text-destructive"}`}
                   >
                     {change}
                   </td>
