@@ -1,7 +1,8 @@
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { KrishiLogo } from "@/components/krishi/logo";
 import {
-  Sprout, CloudSun, Sun, Store, Users, HandHeart, Bot, ArrowRight,
+  Sprout, CloudSun, Sun, Store, Users, HandHeart, Bot, ArrowRight, X, Volume2, VolumeX,
   Droplets, TrendingUp, Satellite, Leaf, IndianRupee, Thermometer,
 } from "lucide-react";
 
@@ -46,7 +47,36 @@ const stats = [
   { icon: Thermometer, label: "Multilingual Accessibility" },
 ];
 
+const krishiVideoUrl = "/Krishi%20Mitra%20Hindi%20Dub.mp4";
+
 function Landing() {
+  const heroVideoRef = useRef<HTMLVideoElement>(null);
+  const popupVideoRef = useRef<HTMLVideoElement>(null);
+  const [showVideoPopup, setShowVideoPopup] = useState(false);
+  const [isVideoMuted, setIsVideoMuted] = useState(true);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowVideoPopup(window.scrollY > window.innerHeight * 0.65);
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!showVideoPopup || !popupVideoRef.current || !heroVideoRef.current) return;
+
+    popupVideoRef.current.currentTime = heroVideoRef.current.currentTime;
+    void popupVideoRef.current.play();
+  }, [showVideoPopup]);
+
+  useEffect(() => {
+    if (heroVideoRef.current) heroVideoRef.current.muted = isVideoMuted || showVideoPopup;
+    if (popupVideoRef.current) popupVideoRef.current.muted = isVideoMuted || !showVideoPopup;
+  }, [isVideoMuted, showVideoPopup]);
+
   return (
     <div className="min-h-screen bg-background">
       {/* Nav */}
@@ -63,27 +93,47 @@ function Landing() {
       </header>
 
       {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="field-pattern absolute inset-0" />
-        <div className="absolute -right-24 -top-24 h-96 w-96 rounded-full bg-sun/20 blur-3xl" />
-        <div className="absolute -left-24 bottom-0 h-96 w-96 rounded-full bg-leaf/15 blur-3xl" />
-        <div className="relative mx-auto max-w-6xl px-4 pb-20 pt-16 text-center md:pt-24">
-          <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border bg-card px-4 py-1.5 text-xs font-bold text-primary shadow-sm">
+      <section className="relative isolate overflow-hidden bg-earth text-earth-foreground">
+        <video
+          className="absolute inset-0 h-full w-full object-cover"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden="true"
+          ref={heroVideoRef}
+          src={krishiVideoUrl}
+        />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(18,38,24,0.86)_0%,rgba(18,38,24,0.58)_48%,rgba(18,38,24,0.3)_100%)]" />
+        <div className="absolute inset-0 bg-linear-to-t from-[rgba(18,38,24,0.8)] via-transparent to-[rgba(18,38,24,0.2)]" />
+        <button
+          type="button"
+          onClick={() => setIsVideoMuted((muted) => !muted)}
+          className="absolute right-4 top-4 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/25 bg-black/35 text-white backdrop-blur-sm transition hover:bg-black/60"
+          aria-label={isVideoMuted ? "Turn video sound on" : "Turn video sound off"}
+        >
+          {isVideoMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+        </button>
+        <div className="relative mx-auto max-w-6xl px-4 pb-20 pt-16 md:pt-24">
+          <div className="max-w-3xl">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-1.5 text-xs font-bold text-white shadow-sm backdrop-blur-sm">
             <Leaf className="h-3.5 w-3.5" /> Student Innovation · For India's Farmers
           </div>
-          <h1 className="mx-auto max-w-3xl text-4xl font-extrabold leading-tight tracking-tight text-foreground md:text-6xl">
-            Technology that grows <span className="text-primary">with the farmer.</span>
+          <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-tight text-white md:text-6xl">
+            Technology that grows <span className="text-sun">with the farmer.</span>
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground md:text-lg">
+          <p className="mt-5 max-w-2xl text-base text-white/80 md:text-lg">
             AI-powered crop intelligence, weather forecasting, smart irrigation, market access and farmer collaboration — all in one platform.
           </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <div className="mt-8 flex flex-wrap gap-3">
             <Link to="/dashboard" className="inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3 text-sm font-bold text-primary-foreground shadow-lg hover:opacity-90">
               Get Started <ArrowRight className="h-4 w-4" />
             </Link>
-            <a href="#features" className="inline-flex items-center gap-2 rounded-full border-2 border-primary bg-card px-7 py-3 text-sm font-bold text-primary hover:bg-accent">
+            <a href="#features" className="inline-flex items-center gap-2 rounded-full border-2 border-white/70 bg-white/10 px-7 py-3 text-sm font-bold text-white backdrop-blur-sm hover:bg-white/20">
               Explore Platform
             </a>
+          </div>
           </div>
 
           {/* Floating farm telemetry mock */}
@@ -108,6 +158,48 @@ function Landing() {
           </div>
         </div>
       </section>
+
+      <div
+        className={`fixed bottom-5 right-5 z-50 w-[min(22rem,calc(100vw-2rem))] origin-bottom-right transition-all duration-500 ${
+          showVideoPopup ? "translate-y-0 scale-100 opacity-100" : "pointer-events-none translate-y-6 scale-95 opacity-0"
+        }`}
+        aria-hidden={!showVideoPopup}
+      >
+        <div className="overflow-hidden rounded-2xl border border-white/20 bg-black shadow-2xl shadow-black/30">
+          <div className="relative aspect-video">
+            <video
+              ref={popupVideoRef}
+              className="h-full w-full object-cover"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="auto"
+              aria-label="Krishi Mitra introduction video"
+              src={krishiVideoUrl}
+            />
+            <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 to-transparent px-4 pb-3 pt-8">
+              <p className="text-xs font-bold text-white">Krishi Mitra in action</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowVideoPopup(false)}
+              className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
+              aria-label="Close video"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsVideoMuted((muted) => !muted)}
+              className="absolute right-12 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
+              aria-label={isVideoMuted ? "Turn video sound on" : "Turn video sound off"}
+            >
+              {isVideoMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Features */}
       <section id="features" className="mx-auto max-w-6xl px-4 py-16">
