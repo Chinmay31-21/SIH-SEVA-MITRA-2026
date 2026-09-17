@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import {
   BarChart3,
@@ -22,6 +22,64 @@ import {
   StatCard,
   StatusPill,
 } from "@/components/krishi/widgets";
+
+type LiveMarketRow = {
+  crop: string;
+  market: string;
+  apmcCode: string;
+  variety: string;
+  sector: string;
+  observedOn: string;
+  average: number | null;
+  minimum: number | null;
+  maximum: number | null;
+  unit: string;
+  change: number | null;
+  demand: "High" | "Medium" | "Low" | "Stable" | "Insufficient history";
+};
+
+type MarketResponse = {
+  fetchedAt: string;
+  sources: Array<{ source: string; url: string; date: string | null; rows: LiveMarketRow[]; error?: string }>;
+};
+
+type SupabaseSource = { id: number; name: string; url: string; active: boolean };
+type SupabasePrice = {
+  source_id: number;
+  observed_on: string;
+  crop: string;
+  market: string;
+  sector: string;
+  minimum_price: number | null;
+  maximum_price: number | null;
+  average_price: number | null;
+  unit: string;
+};
+
+type MarketLookupResponse = {
+  fetchedAt: string;
+  apmcs: Array<{ code: string; name: string; district: string | null }>;
+  districts: string[];
+  commodities: string[];
+  sectors: string[];
+  staleAfterDays: number;
+  latestDateByApmc: Record<string, string | null>;
+  totalRows: number;
+  staleDaysByApmc: Record<string, number | null>;
+  rows: Array<{
+    apmc_code: string;
+    observed_on: string;
+    crop: string;
+    market: string;
+    variety: string;
+    sector: string;
+    quantity: number | null;
+    minimum_price: number | null;
+    maximum_price: number | null;
+    average_price: number | null;
+    unit: string;
+  }>;
+};
 
 const tabs = [
   ["prices", "Live Market Prices"],
@@ -87,6 +145,52 @@ const listings = [
   ],
 ];
 
+async function fetchSupabaseMarketPrices(): Promise<MarketResponse> {
+  const supabaseUrl = import.meta.env["VITE_SUPABASE_URL"] as string | undefined;
+  const publishableKey = import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined;
+  if (!supabaseUrl || !publishableKey) throw new Error("Supabase public configuration is missing");
+
+  const headers = { apikey: publishableKey, Authorization: `Bearer ${publishableKey}` };
+  const [sourceResponse, priceResponse] = await Promise.all([
+    fetch(`${supabaseUrl}/rest/v1/market_sources?select=id,name,url,active&active=eq.true&order=name`, { headers }),
+    fetch(`${supabaseUrl}/rest/v1/market_prices?select=source_id,observed_on,crop,market,sector,minimum_price,maximum_price,average_price,unit&order=observed_on.desc&limit=10000`, { headers }),
+  ]);
+  if (!sourceResponse.ok || !priceResponse.ok) throw new Error("Unable to load Supabase market data");
+
+  const sources = (await sourceResponse.json()) as SupabaseSource[];
+  const prices = (await priceResponse.json()) as SupabasePrice[];
+  const results = sources.map((source) => {
+    const sourcePrices = prices.filter((price) => price.source_id === source.id);
+    const date = sourcePrices[0]?.observed_on ?? null;
+    const latest = sourcePrices.filter((price) => price.observed_on === date);
+    return {
+      source: source.name,
+      url: source.url,
+      date,
+      rows: latest.map((price) => {
+        const previous = sourcePrices.find(
+          (item) => item.crop === price.crop && item.sector === price.sector && item.observed_on < price.observed_on,
+        );
+        const change = price.average_price !== null && previous?.average_price
+          ? Number((((price.average_price - previous.average_price) / previous.average_price) * 100).toFixed(1))
+          : null;
+        return {
+          crop: price.crop,
+          market: price.market,
+          sector: price.sector,
+          average: price.average_price,
+          minimum: price.minimum_price,
+          maximum: price.maximum_price,
+          unit: price.unit,
+          change,
+          demand: change === null ? "Insufficient history" : change >= 5 ? "High" : change >= 1 ? "Medium" : change <= -5 ? "Low" : "Stable",
+        } as LiveMarketRow;
+      }),
+    };
+  });
+  return { fetchedAt: new Date().toISOString(), sources: results };
+}
+
 export const Route = createFileRoute("/_app/market")({
   validateSearch: z.object({ tab: z.string().optional() }),
   head: () => ({ meta: [{ title: "Krishi Market — Sell Smarter | Krishi Mitra" }] }),
@@ -125,38 +229,335 @@ function MarketPage() {
 
 function PricesTab() {
   const [query, setQuery] = useState("");
-  const filtered = useMemo(
-    () =>
-      prices.filter(([crop, market]) =>
-        `${crop} ${market}`.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [query],
-  );
+  const [lookupMode, setLookupMode] = useState<"market" | "crop">("market");
+  const [dataSource, setDataSource] = useState<"msamb" | "apmc">("msamb");
+  const [selectedApmc, setSelectedApmc] = useState("");
+  const [selectedDistrict, setSelectedDistrict] = useState("");
+  const [selectedCommodity, setSelectedCommodity] = useState("");
+  const [selectedSector, setSelectedSector] = useState("");
+
+  const [lookupData, setLookupData] = useState<MarketLookupResponse | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+
+  const [liveData, setLiveData] = useState<MarketResponse | null>(null);
+  const [liveLoading, setLiveLoading] = useState(true);
+
+  // Fetch APMC scraper data (fallback / "APMC" source tab)
+  useEffect(() => {
+    fetchSupabaseMarketPrices()
+      .then(setLiveData)
+      .catch(() => setLiveData(null))
+      .finally(() => setLiveLoading(false));
+  }, []);
+
+  // Fetch MSAMB market-data from Edge Function
+  useEffect(() => {
+    if (dataSource !== "msamb") return;
+    setLookupLoading(true);
+    const supabaseUrl = import.meta.env["VITE_SUPABASE_URL"] as string | undefined;
+    if (!supabaseUrl) {
+      setLookupLoading(false);
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("source", "msamb");
+    if (lookupMode === "market") {
+      if (selectedApmc) params.set("apmcCode", selectedApmc);
+      else if (selectedDistrict) params.set("district", selectedDistrict);
+    }
+    if (lookupMode === "crop" && selectedCommodity) params.set("commodity", selectedCommodity);
+    if (selectedSector) params.set("sector", selectedSector);
+
+    const publishableKey = import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined;
+    fetch(`${supabaseUrl}/functions/v1/market-data?${params}`, {
+      headers: publishableKey ? { apikey: publishableKey } : {},
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setLookupData(d as MarketLookupResponse | null))
+      .catch(() => setLookupData(null))
+      .finally(() => setLookupLoading(false));
+  }, [dataSource, lookupMode, selectedApmc, selectedDistrict, selectedCommodity, selectedSector]);
+
+  // Available APMCs filtered by district
+  const availableApmcs = useMemo(() => {
+    const list = lookupData?.apmcs ?? [];
+    if (!selectedDistrict) return list;
+    return list.filter((a) => a.district === selectedDistrict);
+  }, [lookupData?.apmcs, selectedDistrict]);
+
+  // MSAMB rows
+  const msamRows = useMemo(() => {
+    if (!lookupData?.rows) return [];
+    const apmcMap = new Map((lookupData.apmcs ?? []).map((a) => [a.code, a]));
+    return lookupData.rows.map((row) => {
+      const apmcInfo = row.apmc_code ? apmcMap.get(row.apmc_code) : undefined;
+      return {
+        crop: row.crop,
+        market: row.market,
+        apmcCode: row.apmc_code,
+        variety: row.variety,
+        district: apmcInfo?.district ?? null,
+        sector: row.sector,
+        observedOn: row.observed_on,
+        quantity: row.quantity,
+        average: row.average_price,
+        minimum: row.minimum_price,
+        maximum: row.maximum_price,
+        unit: row.unit || "quintal",
+        change: null as number | null,
+        demand: "Insufficient history" as const,
+      };
+    });
+  }, [lookupData]);
+
+  // APMC fallback rows
+  const apmcRows = useMemo(() => {
+    return (liveData?.sources.flatMap((source) => source.rows) ?? []).map((row) => ({
+      crop: row.crop,
+      market: row.market,
+      apmcCode: null as string | null,
+      variety: "",
+      district: null as string | null,
+      sector: row.sector,
+      observedOn: null as string | null,
+      quantity: null as number | null,
+      average: row.average,
+      minimum: row.minimum,
+      maximum: row.maximum,
+      unit: row.unit,
+      change: row.change,
+      demand: row.demand,
+    }));
+  }, [liveData]);
+
+  const activeRows = dataSource === "msamb" ? msamRows : apmcRows;
+  const isLoading = dataSource === "msamb" ? lookupLoading : liveLoading;
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return activeRows;
+    const q = query.toLowerCase();
+    return activeRows.filter(
+      (row) =>
+        row.crop.toLowerCase().includes(q) ||
+        row.market.toLowerCase().includes(q) ||
+        (row.variety && row.variety.toLowerCase().includes(q)) ||
+        (row.district && row.district.toLowerCase().includes(q)) ||
+        (row.sector && row.sector.toLowerCase().includes(q)),
+    );
+  }, [activeRows, query]);
+
+  // Top rate opportunity
+  const topOpportunity = useMemo(() => {
+    if (!activeRows.length) return null;
+    return [...activeRows].sort((a, b) => (b.average ?? 0) - (a.average ?? 0))[0];
+  }, [activeRows]);
+
+  // Stale detection
+  const latestDates = lookupData?.latestDateByApmc ?? {};
+  const staleDaysByApmc = lookupData?.staleDaysByApmc ?? {};
+  const staleThreshold = lookupData?.staleAfterDays ?? 2;
+  const hasStaleData = Object.values(staleDaysByApmc).some((d) => d !== null && d > staleThreshold);
+
+  const totalApmcs = lookupData?.apmcs?.length ?? 0;
+  const totalMsamRows = lookupData?.totalRows ?? 0;
+
   return (
     <div className="space-y-6">
+      {/* ─── Data source toggle ─── */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setDataSource("msamb")}
+          className={`rounded-xl px-4 py-2 text-xs font-bold transition-colors ${dataSource === "msamb" ? "bg-primary text-primary-foreground shadow-sm" : "border bg-card text-muted-foreground hover:bg-accent"}`}
+        >
+          MSAMB (All Maharashtra)
+        </button>
+        <button
+          onClick={() => setDataSource("apmc")}
+          className={`rounded-xl px-4 py-2 text-xs font-bold transition-colors ${dataSource === "apmc" ? "bg-primary text-primary-foreground shadow-sm" : "border bg-card text-muted-foreground hover:bg-accent"}`}
+        >
+          APMC (Mumbai / Pune / Nagpur)
+        </button>
+      </div>
+
+      {/* ─── Status banner ─── */}
+      <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="font-bold text-foreground">
+              {isLoading
+                ? "Fetching market prices…"
+                : activeRows.length
+                  ? dataSource === "msamb"
+                    ? `${totalMsamRows} commodities from ${totalApmcs} APMCs across Maharashtra`
+                    : "Live APMC market prices"
+                  : "Market data unavailable"}
+            </p>
+            {hasStaleData && (
+              <p className="mt-1 text-xs font-semibold text-amber-600">
+                ⚠ Some APMCs have data older than {staleThreshold} days — prices may not reflect today's market.
+              </p>
+            )}
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {lookupData?.fetchedAt
+              ? `Loaded ${new Date(lookupData.fetchedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+          </span>
+        </div>
+      </div>
+
+      {/* ─── MSAMB selectors ─── */}
+      {dataSource === "msamb" && (
+        <div className="rounded-2xl border bg-card p-5 shadow-sm">
+          {/* Lookup mode toggle */}
+          <div className="mb-4 flex gap-2">
+            <button
+              onClick={() => { setLookupMode("market"); setSelectedCommodity(""); }}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${lookupMode === "market" ? "bg-primary text-primary-foreground" : "border text-muted-foreground hover:bg-accent"}`}
+            >
+              🏪 By my market / district
+            </button>
+            <button
+              onClick={() => { setLookupMode("crop"); setSelectedApmc(""); setSelectedDistrict(""); }}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${lookupMode === "crop" ? "bg-primary text-primary-foreground" : "border text-muted-foreground hover:bg-accent"}`}
+            >
+              🌾 By my crop
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {lookupMode === "market" && (
+              <>
+                <label className="text-xs font-bold text-muted-foreground">
+                  District
+                  <select
+                    value={selectedDistrict}
+                    onChange={(e) => {
+                      const newDist = e.target.value;
+                      setSelectedDistrict(newDist);
+                      if (selectedApmc) {
+                        const cur = (lookupData?.apmcs ?? []).find((a) => a.code === selectedApmc);
+                        if (newDist && cur && cur.district !== newDist) setSelectedApmc("");
+                      }
+                    }}
+                    className="ml-2 h-9 rounded-lg border bg-background px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">All districts (सर्व जिल्हे)</option>
+                    {(lookupData?.districts ?? []).map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-bold text-muted-foreground">
+                  APMC (बाजार समिती)
+                  <select
+                    value={selectedApmc}
+                    onChange={(e) => {
+                      const newCode = e.target.value;
+                      setSelectedApmc(newCode);
+                      if (newCode && !selectedDistrict) {
+                        const found = (lookupData?.apmcs ?? []).find((a) => a.code === newCode);
+                        if (found?.district) setSelectedDistrict(found.district);
+                      }
+                    }}
+                    className="ml-2 h-9 rounded-lg border bg-background px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">
+                      {selectedDistrict ? `All APMCs in ${selectedDistrict}` : "All APMCs (सर्व बाजार समित्या)"}
+                    </option>
+                    {availableApmcs.map((a) => (
+                      <option key={a.code} value={a.code}>
+                        {a.name}{a.district && !selectedDistrict ? ` (${a.district})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+            {lookupMode === "crop" && (
+              <label className="text-xs font-bold text-muted-foreground">
+                Commodity (शेतमाल)
+                <select
+                  value={selectedCommodity}
+                  onChange={(e) => setSelectedCommodity(e.target.value)}
+                  className="ml-2 h-9 rounded-lg border bg-background px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">All commodities (सर्व शेतमाल)</option>
+                  {(lookupData?.commodities ?? []).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="text-xs font-bold text-muted-foreground">
+              Sector (विभाग)
+              <select
+                value={selectedSector}
+                onChange={(e) => setSelectedSector(e.target.value)}
+                className="ml-2 h-9 rounded-lg border bg-background px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">All sectors (सर्व विभाग)</option>
+                {(lookupData?.sectors ?? []).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {/* Last updated per selected APMC */}
+          {selectedApmc && latestDates[selectedApmc] && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Last reported:</span>
+              <span className="font-bold text-foreground">{latestDates[selectedApmc]}</span>
+              {(staleDaysByApmc[selectedApmc] ?? 0) > staleThreshold && (
+                <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 font-bold">
+                  {staleDaysByApmc[selectedApmc]} days old
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Stat cards ─── */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard
-          label="Your best opportunity"
-          value="Tomato"
-          sub="₹2,350 / quintal"
+          label={lookupMode === "crop" && selectedCommodity ? `Top Market for ${selectedCommodity}` : "Your best opportunity"}
+          value={topOpportunity?.crop ? `${topOpportunity.crop} · ${topOpportunity.market}` : "Tomato"}
+          sub={topOpportunity?.average != null ? `₹${topOpportunity.average.toLocaleString("en-IN")} / ${topOpportunity.unit}` : "₹2,350 / quintal"}
           tone="leaf"
           icon={<TrendingUp className="h-4 w-4" />}
         />
-        <StatCard label="Highest demand" value="Onion" sub="+14% next 2 weeks" tone="sun" />
+        <StatCard
+          label="Top crop in state"
+          value={activeRows[0]?.crop ?? "कांदा"}
+          sub={activeRows[0]?.average != null ? `₹${activeRows[0].average.toLocaleString("en-IN")} modal` : "+14% trend"}
+          tone="sun"
+        />
         <StatCard
           label="Markets tracked"
-          value="18"
-          sub="Across Maharashtra"
+          value={dataSource === "msamb" ? String(totalApmcs || 278) : "3"}
+          sub={dataSource === "msamb" ? "Across Maharashtra" : "Mumbai · Pune · Nagpur"}
           icon={<BarChart3 className="h-4 w-4" />}
         />
-        <StatCard label="Last updated" value="10:32 AM" sub="Today, 5 Sep" />
+        <StatCard
+          label="Last updated"
+          value={lookupData?.fetchedAt ? new Date(lookupData.fetchedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "—"}
+          sub={lookupData?.fetchedAt ? new Date(lookupData.fetchedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : ""}
+        />
       </div>
+
+      {/* ─── Price table ─── */}
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-extrabold">Live mandi prices</h3>
+            <h3 className="font-extrabold text-base">
+              {dataSource === "msamb" ? "MSAMB Mandi Prices (कृषि उत्पन्न बाजार समिती भाव)" : "Live APMC Mandi Prices"}
+            </h3>
             <p className="text-xs text-muted-foreground">
-              Minimum, maximum and average prices in ₹ / quintal
+              {dataSource === "msamb"
+                ? "Official daily wholesale arrival prices from Maharashtra State Agricultural Marketing Board"
+                : "Minimum, maximum and average prices in ₹ / quintal"}
             </p>
           </div>
           <div className="relative">
@@ -164,55 +565,151 @@ function PricesTab() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search crop or market"
-              className="h-10 w-56 rounded-xl border bg-background pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Search crop, variety, market..."
+              className="h-10 w-64 rounded-xl border bg-background pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
         </div>
+
         <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-full text-left text-sm">
-            <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                {["Crop / Market", "Average", "Min–Max", "Change", "Demand", "Stock"].map((h) => (
-                  <th key={h} className="px-3 py-3 font-bold">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(([crop, market, avg, min, max, change, demand, stock]) => (
-                <tr key={crop} className="border-b last:border-0 hover:bg-muted/50">
-                  <td className="px-3 py-4">
-                    <div className="font-extrabold">{crop}</div>
-                    <div className="text-xs text-muted-foreground">{market}</div>
-                  </td>
-                  <td className="px-3 py-4 font-extrabold">
-                    {avg}
-                    <div className="text-[10px] font-normal text-muted-foreground">/ quintal</div>
-                  </td>
-                  <td className="px-3 py-4 text-xs text-muted-foreground">
-                    {min} – {max}
-                  </td>
-                  <td
-                    className={`px-3 py-4 font-bold ${change.startsWith("+") ? "text-primary" : "text-destructive"}`}
-                  >
-                    {change}
-                  </td>
-                  <td className="px-3 py-4">
-                    <StatusPill
-                      tone={demand === "High" ? "green" : demand === "Medium" ? "amber" : "red"}
-                    >
-                      {demand}
-                    </StatusPill>
-                  </td>
-                  <td className="px-3 py-4 text-muted-foreground">{stock}</td>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <span className="ml-3 text-sm">Loading market data…</span>
+            </div>
+          ) : dataSource === "msamb" ? (
+            <table className="w-full min-w-full text-left text-sm">
+              <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-3 font-bold">Commodity & Variety (शेतमाल / जात)</th>
+                  <th className="px-3 py-3 font-bold">Mandi & District (बाजार समिती)</th>
+                  <th className="px-3 py-3 font-bold">Modal Rate (सर्वसाधारण भाव)</th>
+                  <th className="px-3 py-3 font-bold">Min – Max Range (कमी – जास्त)</th>
+                  <th className="px-3 py-3 font-bold">Arrivals (आवक)</th>
+                  <th className="px-3 py-3 font-bold">Reported (दिनांक)</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map((row, idx) => {
+                  const isTopRate = topOpportunity && row.crop === topOpportunity.crop && row.average === topOpportunity.average && lookupMode === "crop";
+                  return (
+                    <tr
+                      key={`${row.apmcCode || row.market}-${row.crop}-${row.variety || ''}-${row.observedOn || idx}`}
+                      className="border-b last:border-0 hover:bg-muted/50 transition-colors"
+                    >
+                      <td className="px-3 py-3.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-extrabold text-foreground text-sm">{row.crop}</span>
+                          {row.variety && row.variety !== "---" && (
+                            <span className="rounded bg-accent/80 px-1.5 py-0.5 text-[10px] font-semibold text-accent-foreground border border-accent">
+                              {row.variety}
+                            </span>
+                          )}
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {row.sector}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <div className="font-bold text-foreground">{row.market}</div>
+                        {row.district && (
+                          <div className="text-xs text-muted-foreground">{row.district}</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-base font-black text-foreground">
+                            {row.average !== null ? `₹${row.average.toLocaleString("en-IN")}` : "—"}
+                          </span>
+                          {isTopRate && (
+                            <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 border border-emerald-500/20">
+                              ★ Top Mandi
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">/ {row.unit}</div>
+                      </td>
+                      <td className="px-3 py-3.5 text-xs text-muted-foreground font-medium">
+                        {row.minimum !== null ? `₹${row.minimum.toLocaleString("en-IN")}` : "—"} – {row.maximum !== null ? `₹${row.maximum.toLocaleString("en-IN")}` : "—"}
+                      </td>
+                      <td className="px-3 py-3.5 text-xs font-semibold text-foreground">
+                        {row.quantity !== null && row.quantity > 0 ? `${row.quantity.toLocaleString("en-IN")} ${row.unit}` : "—"}
+                      </td>
+                      <td className="px-3 py-3.5 text-xs text-muted-foreground">
+                        {row.observedOn
+                          ? new Date(row.observedOn).toLocaleDateString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })
+                          : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">
+                      {query ? "No commodities match your search query." : "No market data available for the selected filters."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full min-w-full text-left text-sm">
+              <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  {["Crop / Market", "Average", "Min–Max", "Change", "Demand", "Stock"].map((h) => (
+                    <th key={h} className="px-3 py-3 font-bold">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row, idx) => (
+                  <tr key={`${row.market}-${row.crop}-${idx}`} className="border-b last:border-0 hover:bg-muted/50">
+                    <td className="px-3 py-4">
+                      <div className="font-extrabold">{row.crop}</div>
+                      <div className="text-xs text-muted-foreground">{row.market}</div>
+                    </td>
+                    <td className="px-3 py-4 font-extrabold">
+                      {row.average !== null ? `₹${row.average.toLocaleString("en-IN")}` : "—"}
+                      <div className="text-[10px] font-normal text-muted-foreground">/ quintal</div>
+                    </td>
+                    <td className="px-3 py-4 text-xs text-muted-foreground">
+                      {row.minimum !== null ? `₹${row.minimum.toLocaleString("en-IN")}` : "—"} – {row.maximum !== null ? `₹${row.maximum.toLocaleString("en-IN")}` : "—"}
+                    </td>
+                    <td
+                      className={`px-3 py-4 font-bold ${typeof row.change === "number" && row.change >= 0 ? "text-primary" : typeof row.change === "number" && row.change < 0 ? "text-destructive" : "text-muted-foreground"}`}
+                    >
+                      {row.change !== null ? `${row.change >= 0 ? "+" : ""}${row.change}%` : "—"}
+                    </td>
+                    <td className="px-3 py-4">
+                      <StatusPill
+                        tone={row.demand === "High" ? "green" : row.demand === "Medium" ? "amber" : row.demand === "Low" ? "red" : "blue"}
+                      >
+                        {row.demand}
+                      </StatusPill>
+                    </td>
+                    <td className="px-3 py-4 text-muted-foreground">{row.unit}</td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
+                      {query ? "No crops match your search." : "No market data available for the selected filters."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
+
+      {/* ─── Chart + AI insight ─── */}
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <div className="rounded-2xl border bg-card p-5 shadow-sm">
           <h3 className="font-extrabold">Onion price trend · Nashik</h3>
@@ -245,6 +742,7 @@ function PricesTab() {
     </div>
   );
 }
+
 
 function IntelligenceTab() {
   return (

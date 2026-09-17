@@ -305,7 +305,7 @@ function GroupsTab() {
 }
 
 function NearbyTab() {
-  const farmers = [
+  const farmers: Array<[string, string, string, string]> = [
     ["Meena Pawar", "2.8 km", "Tomato · Onion", "Pune"],
     ["Anil Shinde", "9.4 km", "Grapes · Tomato", "Nashik"],
     ["Prakash Jadhav", "11.2 km", "Wheat · Soybean", "Nashik"],
@@ -333,6 +333,7 @@ function NearbyTab() {
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-extrabold text-primary-foreground">
               {name
                 .split(" ")
+                .filter(Boolean)
                 .map((part) => part[0])
                 .join("")}
             </div>
@@ -359,7 +360,7 @@ function NearbyTab() {
 }
 
 function MessagesTab() {
-  const conversations = [
+  const conversations: Array<[string, string, string]> = [
     ["Rahul Foods", "Can you share 240 kg tomato details?", "10:24 AM"],
     ["Anil Shinde", "The irrigation settings worked well.", "Yesterday"],
     ["Maharashtra Vegetable Growers", "New group announcement", "Yesterday"],
@@ -381,7 +382,8 @@ function MessagesTab() {
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
                 {name
-                  .split(" ")
+                  ?.split(" ")
+                  .filter(Boolean)
                   .map((part) => part[0])
                   .join("")}
               </span>
@@ -431,7 +433,7 @@ function MessagesTab() {
 }
 
 function ExpertsTab() {
-  const experts = [
+  const experts: Array<[string, string, string, string, string]> = [
     [
       "Dr. Kavita Deshmukh",
       "Plant Pathologist",
@@ -476,7 +478,7 @@ function ExpertsTab() {
             <div className="flex items-start justify-between">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary text-sm font-extrabold text-primary">
                 {name
-                  .split(" ")
+                  ?.split(" ")
                   .filter(Boolean)
                   .slice(-2)
                   .map((part) => part[0])
