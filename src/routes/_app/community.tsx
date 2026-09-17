@@ -339,13 +339,8 @@ function NearbyTab() {
           >
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-extrabold text-primary-foreground">
               {name
-                .split(" ")
-<<<<<<< HEAD
                 .filter(Boolean)
                 .map((part) => part[0])
-=======
-                 .map((part) => part?.[0] ?? "")
->>>>>>> 157360388c511c380f2398cbdad6f984d112186e
                 .join("")}
             </div>
             <div className="min-w-0 flex-1">
@@ -393,14 +388,9 @@ function MessagesTab() {
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
                 {name
-<<<<<<< HEAD
                   ?.split(" ")
                   .filter(Boolean)
                   .map((part) => part[0])
-=======
-                  .split(" ")
-                   .map((part) => part?.[0] ?? "")
->>>>>>> 157360388c511c380f2398cbdad6f984d112186e
                   .join("")}
               </span>
               <span className="min-w-0 flex-1">
