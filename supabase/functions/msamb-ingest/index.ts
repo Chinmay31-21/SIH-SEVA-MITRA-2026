@@ -27,6 +27,19 @@ const requestHeaders = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
 };
 const PER_APMC_TIMEOUT_MS = 10_000;
+const RETENTION_DAYS = 3;
+
+function indiaDateDaysAgo(daysAgo: number): string {
+  const date = new Date(Date.now() - daysAgo * 86_400_000);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const valueFor = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+  return `${valueFor("year")}-${valueFor("month")}-${valueFor("day")}`;
+}
 
 function clean(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
@@ -127,9 +140,13 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item
 export default {
   fetch: withSupabase({ auth: "secret" }, async (request, ctx) => {
     const url = new URL(request.url);
-    const limitParam = Number(url.searchParams.get("limit") ?? 30);
-    const offsetParam = Number(url.searchParams.get("offset") ?? 0);
+    const requestedLimit = Number(url.searchParams.get("limit") ?? 30);
+    const requestedOffset = Number(url.searchParams.get("offset") ?? 0);
+    // Keep each scheduled invocation inside the Edge Function runtime limit.
+    const limitParam = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 30) : 30;
+    const offsetParam = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
     const codesParam = url.searchParams.get("codes");
+    const shouldPrune = url.searchParams.get("prune") === "true";
 
     // Fetch and sync APMC reference list
     let apmcs = await fetchAPMCList();
@@ -184,12 +201,28 @@ export default {
     const totalRows = results.reduce((sum, r) => sum + r.rows, 0);
     const failedCount = results.filter((r) => r.error && r.rows === 0).length;
 
+    // The final scheduled batch prunes only MSAMB records older than the
+    // current day plus the two preceding calendar days in India.
+    const retainFrom = indiaDateDaysAgo(RETENTION_DAYS - 1);
+    let pruneError: string | null = null;
+    if (shouldPrune) {
+      const { error } = await ctx.supabaseAdmin
+        .from("market_prices")
+        .delete()
+        .eq("source", "msamb")
+        .lt("observed_on", retainFrom);
+      pruneError = error?.message ?? null;
+    }
+
     return Response.json({
       fetchedAt: new Date().toISOString(),
       apmcsTotal: apmcs.length,
       apmcsScraped: targetApmcs.length,
       totalRows,
       failedCount,
+      retainedFrom: retainFrom,
+      pruned: shouldPrune,
+      pruneError,
       results,
     });
   }),
