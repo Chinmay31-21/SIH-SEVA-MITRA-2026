@@ -25,48 +25,48 @@ export const Route = createFileRoute("/_app/notifications")({
   component: Notifications,
 });
 const initial = [
-  [
-    "Weather",
-    "Heavy rain expected tomorrow from 4 PM",
-    "Delay irrigation and protect harvested produce.",
-    "10 min ago",
-    "blue",
-  ],
-  [
-    "Crop Health",
-    "Nitrogen is low in Field A",
-    "Apply the recommended urea plan within 3 days.",
-    "1 hr ago",
-    "green",
-  ],
-  [
-    "Irrigation",
-    "Field B moisture has fallen below 40%",
-    "A 22-minute irrigation cycle is recommended.",
-    "3 hrs ago",
-    "sky",
-  ],
-  [
-    "Market",
-    "Tomato price increased by 8.4%",
-    "Pune APMC is now showing ₹2,350 / quintal.",
-    "Yesterday",
-    "amber",
-  ],
-  [
-    "Orders",
-    "Rahul Foods sent you an offer",
-    "Review the offer for 240 kg of tomato.",
-    "Yesterday",
-    "green",
-  ],
-  [
-    "Government Schemes",
-    "You may qualify for irrigation subsidy",
-    "Your scheme matcher found a strong match.",
-    "2 days ago",
-    "amber",
-  ],
+  {
+    category: "Weather",
+    title: "Heavy rain expected tomorrow from 4 PM",
+    text: "Delay irrigation and protect harvested produce.",
+    time: "10 min ago",
+    tone: "blue",
+  },
+  {
+    category: "Crop Health",
+    title: "Nitrogen is low in Field A",
+    text: "Apply the recommended urea plan within 3 days.",
+    time: "1 hr ago",
+    tone: "green",
+  },
+  {
+    category: "Irrigation",
+    title: "Field B moisture has fallen below 40%",
+    text: "A 22-minute irrigation cycle is recommended.",
+    time: "3 hrs ago",
+    tone: "sky",
+  },
+  {
+    category: "Market",
+    title: "Tomato price increased by 8.4%",
+    text: "Pune APMC is now showing ₹2,350 / quintal.",
+    time: "Yesterday",
+    tone: "amber",
+  },
+  {
+    category: "Orders",
+    title: "Rahul Foods sent you an offer",
+    text: "Review the offer for 240 kg of tomato.",
+    time: "Yesterday",
+    tone: "green",
+  },
+  {
+    category: "Government Schemes",
+    title: "You may qualify for irrigation subsidy",
+    text: "Your scheme matcher found a strong match.",
+    time: "2 days ago",
+    tone: "amber",
+  },
 ] as const;
 function Notifications() {
   const [items, setItems] = useState(initial.map((item, index) => ({ ...item, read: index > 2 })));
@@ -80,7 +80,7 @@ function Notifications() {
     "Orders",
     "Government Schemes",
   ];
-  const visible = items.filter((item) => filter === "All" || item[0] === filter);
+  const visible = items.filter((item) => filter === "All" || item.category === filter);
   const markRead = (index: number) =>
     setItems((current) =>
       current.map((item, itemIndex) => (itemIndex === index ? { ...item, read: true } : item)),
@@ -113,7 +113,7 @@ function Notifications() {
       </div>
       <div className="mt-5 rounded-2xl border bg-card shadow-sm">
         {visible.map((item) => {
-          const [category, title, text, time, tone] = item;
+          const { category, title, text, time, tone } = item;
           const originalIndex = items.indexOf(item);
           return (
             <div
