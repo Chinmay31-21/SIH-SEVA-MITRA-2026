@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { Bot, Leaf, Mic, Send, Sparkles, Volume2 } from "lucide-react";
+import { useState, useRef } from "react";
+import { Bot, Leaf, Mic, Send, Sparkles, Volume2, VolumeX, Loader2, Square, CircleStop } from "lucide-react";
 import { PageHeader } from "@/components/krishi/widgets";
-import { useLanguage, type Language } from "@/lib/i18n";
+import { useLanguage, type Language, LANGUAGE_CODES } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_app/ai-assistant")({
   head: () => ({
@@ -37,6 +37,14 @@ function AIAssistant() {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [isCooldown, setIsCooldown] = useState(false);
+  
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlayingTTS, setIsPlayingTTS] = useState(false);
 
   const suggestions = [
     t("What are the benefits under PMFBY crop insurance?", "What are the benefits under PMFBY crop insurance?"),
@@ -45,27 +53,76 @@ function AIAssistant() {
     t("What are the rules for PACS membership?", "What are the rules for PACS membership?"),
   ];
 
+  const stopTTS = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsPlayingTTS(false);
+  };
+
+  const playTTS = async (text: string) => {
+    try {
+      setIsPlayingTTS(true);
+      const sarvamCode = (LANGUAGE_CODES[language] || "en") + "-IN";
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, language_code: sarvamCode }),
+      });
+      if (!res.ok) throw new Error("TTS failed");
+      const data = await res.json();
+      if (data.audio && audioRef.current) {
+        audioRef.current.src = "data:audio/wav;base64," + data.audio;
+        audioRef.current.onended = () => setIsPlayingTTS(false);
+        audioRef.current.play().catch(e => {
+          console.error(e);
+          setIsPlayingTTS(false);
+        });
+      } else {
+        setIsPlayingTTS(false);
+      }
+    } catch (err) {
+      console.error(err);
+      setIsPlayingTTS(false);
+    }
+  };
+
   const send = async (text: string) => {
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || isCooldown || isPlayingTTS) return;
+
+    // Unlock audio element on user gesture with silence to prevent playing previous audio
+    if (isVoiceMode && audioRef.current) {
+      audioRef.current.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+      audioRef.current.play().catch(() => {});
+    }
 
     const newMessages = [...messages, { role: "user", content: text.trim() }];
     setMessages(newMessages);
     setInput("");
     setIsLoading(true);
+    setIsCooldown(true);
+    setTimeout(() => setIsCooldown(false), 3000);
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+          language: language,
+          messages: [{ role: "user", content: text.trim() }],
         }),
       });
 
       if (!res.ok) throw new Error("API response was not ok");
       const data = await res.json();
+      const reply = data.response;
 
-      setMessages((current) => [...current, { role: "assistant", content: data.response }]);
+      setMessages((current) => [...current, { role: "assistant", content: reply }]);
+      
+      if (isVoiceMode) {
+        playTTS(reply);
+      }
     } catch (err) {
       console.error(err);
       setMessages((current) => [
@@ -80,8 +137,63 @@ function AIAssistant() {
     }
   };
 
+  const handleMicClick = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
+        stream.getTracks().forEach((track) => track.stop());
+        
+        setIsLoading(true);
+        try {
+          const formData = new FormData();
+          formData.append("file", audioBlob, "recording.wav");
+          
+          const res = await fetch("/api/stt", {
+            method: "POST",
+            body: formData,
+          });
+          
+          if (!res.ok) throw new Error("STT failed");
+          const data = await res.json();
+          if (data.transcript) {
+            setInput(data.transcript);
+            send(data.transcript);
+          }
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      alert("Could not access microphone.");
+    }
+  };
+
   return (
     <div>
+      <audio ref={audioRef} className="hidden" />
       <PageHeader
         title="Krishi AI Assistant"
         subtitle="Multilingual Cooperative Governance & Legal Assistance Chatbot"
@@ -98,9 +210,24 @@ function AIAssistant() {
                 Online · English + Hindi + Marathi
               </p>
             </div>
-            <button aria-label="Voice mode" className="ml-auto rounded-full bg-white/10 p-2">
-              <Volume2 className="h-4 w-4" />
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              {isPlayingTTS && (
+                <button
+                  onClick={stopTTS}
+                  className="flex items-center gap-1.5 rounded-full bg-destructive px-3 py-1.5 text-xs font-bold text-destructive-foreground hover:bg-destructive/90 transition-colors"
+                >
+                  <CircleStop className="h-3.5 w-3.5" />
+                  {t("Stop Audio", "Stop Audio")}
+                </button>
+              )}
+              <button 
+                aria-label="Voice mode" 
+                onClick={() => setIsVoiceMode(!isVoiceMode)}
+                className={`rounded-full p-2 transition-colors ${isVoiceMode ? "bg-sun text-earth" : "bg-white/10 text-primary-foreground"}`}
+              >
+                {isVoiceMode ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <div className="flex-1 space-y-4 overflow-y-auto p-5">
             {messages.map((message, index) => (
@@ -133,20 +260,25 @@ function AIAssistant() {
           </div>
           <div className="border-t p-3">
             <div className="flex gap-2">
-              <button aria-label="Voice input" className="rounded-xl bg-sun/25 p-3 text-earth">
-                <Mic className="h-4 w-4" />
+              <button 
+                aria-label="Voice input" 
+                onClick={handleMicClick}
+                disabled={isLoading || isPlayingTTS || isCooldown && !isRecording}
+                className={`rounded-xl p-3 transition-colors ${isRecording ? "bg-destructive text-destructive-foreground animate-pulse" : "bg-sun/25 text-earth disabled:opacity-50"}`}
+              >
+                {isRecording ? <Square className="h-4 w-4 animate-pulse fill-current" /> : <Mic className="h-4 w-4" />}
               </button>
               <input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && send(input)}
-                placeholder={t("Ask in any language...")}
-                disabled={isLoading}
+                placeholder={isPlayingTTS ? t("Audio playing...") : isCooldown ? t("Please wait...") : t("Ask in any language...")}
+                disabled={isLoading || isRecording || isPlayingTTS || isCooldown}
                 className="h-11 flex-1 rounded-xl border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
               <button
                 onClick={() => send(input)}
-                disabled={isLoading || !input.trim()}
+                disabled={isLoading || isRecording || isPlayingTTS || isCooldown || !input.trim()}
                 aria-label="Send question"
                 className="rounded-xl bg-primary p-3 text-primary-foreground disabled:opacity-50"
               >
@@ -166,7 +298,7 @@ function AIAssistant() {
                 <button
                   key={suggestion}
                   onClick={() => send(suggestion)}
-                  disabled={isLoading}
+                  disabled={isLoading || isPlayingTTS || isCooldown}
                   className="w-full rounded-xl border p-3 text-left text-xs font-semibold hover:bg-accent disabled:opacity-50"
                 >
                   {suggestion}

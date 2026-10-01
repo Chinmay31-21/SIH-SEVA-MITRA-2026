@@ -493,7 +493,8 @@ async function handleChatRequest(request: Request, env: RuntimeEnv): Promise<Res
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const body = (await request.json()) as { messages: { role: string; content: string }[] };
+    const body = (await request.json()) as { messages: { role: string; content: string }[], language?: string };
+    const targetLanguage = body.language || "English";
     if (!body || !Array.isArray(body.messages)) {
       return new Response("Invalid payload", { status: 400 });
     }
@@ -525,7 +526,7 @@ Your purpose is to provide guidance on:
 - Cooperative grievance redressal mechanisms
 
 Provide clear, accurate, and supportive answers. 
-CRITICAL: You MUST ALWAYS respond in English, regardless of the language the user types in. Your English response will be automatically translated to the user's local language by our UI layer. Maintain a respectful, helpful tone.`;
+CRITICAL: You MUST ALWAYS respond natively in the ${targetLanguage} language. DO NOT provide any English translation. Generate your response purely in ${targetLanguage}. Keep it brief.`;
 
     const payload = {
       model: "meta-llama/Llama-3.1-8B-Instruct",
@@ -567,6 +568,85 @@ CRITICAL: You MUST ALWAYS respond in English, regardless of the language the use
   }
 }
 
+async function handleTtsRequest(request: Request, env: RuntimeEnv): Promise<Response> {
+  try {
+    if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+    const body = await request.json() as { text: string, language_code?: string };
+    
+    const processEnv = (globalThis as any).process?.env;
+    const sarvamApiKey = env.SARVAM_API_KEY ?? processEnv?.["SARVAM_API_KEY"];
+    if (!sarvamApiKey) return new Response("SARVAM_API_KEY missing", { status: 500 });
+
+    const res = await fetch("https://api.sarvam.ai/text-to-speech", {
+      method: "POST",
+      headers: {
+        "api-subscription-key": sarvamApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        // API limit is 500 characters usually
+        text: body.text.substring(0, 500),
+        speaker: "shubh",
+        model: "bulbul:v3",
+        language_code: body.language_code || "en-IN",
+        pitch: 0,
+        pace: 1.0,
+        loudness: 1.5,
+        sample_rate: 24000
+      })
+    });
+
+    if (!res.ok) {
+      console.error("Sarvam TTS Error:", await res.text());
+      return new Response("TTS failed", { status: 500 });
+    }
+
+    const data = await res.json() as any;
+    // data.audios[0] contains base64 string
+    return new Response(JSON.stringify({ audio: data.audios?.[0] ?? data.audio }), {
+      headers: { "content-type": "application/json" }
+    });
+  } catch (err) {
+    console.error("TTS error:", err);
+    return new Response("Error", { status: 500 });
+  }
+}
+
+async function handleSttRequest(request: Request, env: RuntimeEnv): Promise<Response> {
+  try {
+    if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+    
+    const processEnv = (globalThis as any).process?.env;
+    const sarvamApiKey = env.SARVAM_API_KEY ?? processEnv?.["SARVAM_API_KEY"];
+    if (!sarvamApiKey) return new Response("SARVAM_API_KEY missing", { status: 500 });
+
+    const formData = await request.formData();
+    formData.append("model", "saaras:v4");
+    formData.append("mode", "translate"); // Translate to English directly for the LLM
+
+    const res = await fetch("https://api.sarvam.ai/speech-to-text", {
+      method: "POST",
+      headers: {
+        "api-subscription-key": sarvamApiKey,
+      },
+      body: formData
+    });
+
+    if (!res.ok) {
+      console.error("Sarvam STT Error:", await res.text());
+      return new Response("STT failed", { status: 500 });
+    }
+
+    const data = await res.json() as any;
+    return new Response(JSON.stringify({ transcript: data.transcript }), {
+      headers: { "content-type": "application/json" }
+    });
+  } catch (err) {
+    console.error("STT error:", err);
+    return new Response("Error", { status: 500 });
+  }
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
@@ -576,6 +656,12 @@ export default {
       }
       if (url.pathname === "/api/chat") {
         return await handleChatRequest(request, (env ?? {}) as RuntimeEnv);
+      }
+      if (url.pathname === "/api/tts") {
+        return await handleTtsRequest(request, (env ?? {}) as RuntimeEnv);
+      }
+      if (url.pathname === "/api/stt") {
+        return await handleSttRequest(request, (env ?? {}) as RuntimeEnv);
       }
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
