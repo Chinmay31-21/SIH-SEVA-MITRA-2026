@@ -818,20 +818,27 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(LANGUAGE_LOCAL_STORAGE_KEY, newLang);
       window.dispatchEvent(new CustomEvent("krishi_language_changed", { detail: newLang }));
 
-      // Synchronize with Google Translate cookie if present
+      // Synchronize with Google Translate cookie
       const code = LANGUAGE_CODES[newLang] || "en";
       const domain = window.location.hostname;
-      document.cookie = `googtrans=/en/${code}; path=/;`;
-      if (domain !== "localhost") {
-        document.cookie = `googtrans=/en/${code}; domain=${domain}; path=/;`;
+      
+      if (code === "en") {
+        // Clear the cookie to revert to original English
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+        if (domain !== "localhost") {
+          document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${domain}; path=/;`;
+        }
+      } else {
+        // Set the cookie for the selected language
+        document.cookie = `googtrans=/en/${code}; path=/;`;
+        if (domain !== "localhost") {
+          document.cookie = `googtrans=/en/${code}; domain=${domain}; path=/;`;
+        }
       }
 
-      // Trigger change on Google Translate combo if loaded
-      const combo = document.querySelector<HTMLSelectElement>(".goog-te-combo");
-      if (combo && combo.value !== code) {
-        combo.value = code;
-        combo.dispatchEvent(new Event("change"));
-      }
+      // Reload the page to ensure the Google Translate widget applies the translation
+      // to all dynamic content, including the chatbot and React DOM.
+      window.location.reload();
     }
   };
 

@@ -139,3 +139,11 @@
 .animate-pulse-soft {
   animation: pulse-soft 2.4s ease-in-out infinite;
 }
+
+/* Hide Google Translate UI elements for a native feel */
+.VIpgJd-ZVi9od-ORHb-OEVmcd, .skiptranslate > iframe.skiptranslate {
+  display: none !important;
+}
+body {
+  top: 0 !important;
+}

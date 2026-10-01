@@ -524,7 +524,8 @@ Your purpose is to provide guidance on:
 - Financial literacy
 - Cooperative grievance redressal mechanisms
 
-Provide clear, accurate, and supportive answers. You can speak English, Hindi, and Marathi. Maintain a respectful, helpful tone.`;
+Provide clear, accurate, and supportive answers. 
+CRITICAL: You MUST ALWAYS respond in English, regardless of the language the user types in. Your English response will be automatically translated to the user's local language by our UI layer. Maintain a respectful, helpful tone.`;
 
     const payload = {
       model: "meta-llama/Llama-3.1-8B-Instruct",
