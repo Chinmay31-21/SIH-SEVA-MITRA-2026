@@ -1,0 +1,10 @@
+project_id = "qzjgoitnbghyvrighybj"
+
+[functions.market-ingest]
+verify_jwt = false
+
+[functions.msamb-ingest]
+verify_jwt = false
+
+[functions.market-data]
+verify_jwt = false
