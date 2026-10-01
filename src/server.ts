@@ -572,7 +572,7 @@ async function handleTtsRequest(request: Request, env: RuntimeEnv): Promise<Resp
   try {
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
     const body = await request.json() as { text: string, language_code?: string };
-    
+
     const processEnv = (globalThis as any).process?.env;
     const sarvamApiKey = env.SARVAM_API_KEY ?? processEnv?.["SARVAM_API_KEY"];
     if (!sarvamApiKey) return new Response("SARVAM_API_KEY missing", { status: 500 });
@@ -615,21 +615,35 @@ async function handleTtsRequest(request: Request, env: RuntimeEnv): Promise<Resp
 async function handleSttRequest(request: Request, env: RuntimeEnv): Promise<Response> {
   try {
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
-    
+
     const processEnv = (globalThis as any).process?.env;
     const sarvamApiKey = env.SARVAM_API_KEY ?? processEnv?.["SARVAM_API_KEY"];
     if (!sarvamApiKey) return new Response("SARVAM_API_KEY missing", { status: 500 });
 
-    const formData = await request.formData();
-    formData.append("model", "saaras:v4");
-    formData.append("mode", "translate"); // Translate to English directly for the LLM
+    const incomingFormData = await request.formData();
+    const file = incomingFormData.get("file") as File;
+    if (!file) return new Response("No file provided", { status: 400 });
 
-    const res = await fetch("https://api.sarvam.ai/speech-to-text", {
+    const newFormData = new FormData();
+    // Reconstruct the file blob to prevent Vercel/Node undici from stringifying it as "[object File]"
+    const fileBlob = new Blob([await file.arrayBuffer()], { type: file.type || "audio/webm" });
+    newFormData.append("file", fileBlob, file.name || "recording.webm");
+
+    // Copy any other fields from the client
+    for (const [key, value] of incomingFormData.entries()) {
+      if (key !== "file") newFormData.append(key, value);
+    }
+
+    newFormData.append("model", "saaras:v4");
+    newFormData.append("mode", "translate"); // Translate to English directly for the LLM
+    const sttUrl = "https://api.sarvam.ai/speech-to-text";
+
+    const res = await fetch(sttUrl, {
       method: "POST",
       headers: {
         "api-subscription-key": sarvamApiKey,
       },
-      body: formData
+      body: newFormData
     });
 
     if (!res.ok) {
